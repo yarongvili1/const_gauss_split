@@ -5,8 +5,6 @@
 #include "randombytes.h"
 #include <sys/syscall.h>
 
-#define _GNU_SOURCE
-
 #ifdef SYS_getrandom
 
 void randombytes(unsigned char *buf,size_t buflen)

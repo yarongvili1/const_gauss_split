@@ -10,13 +10,16 @@
 //#define TAU 12
 //#define LIM 215 //LIM = floor(sigma/(sqrt(1+k^2)))
 
-#define TAU 9
-#define LIM 3 //for Falcon only. TAU*LIM should be 27 as according to the reference implementation.
+//#define TAU 18
+//#define LIM 3 //for Falcon only. TAU*LIM should be 27 as according to the reference implementation.
+
+#define TAU 12
+#define LIM 10
 
 
 //#define SIGMA 215.73
 //#define SIGMA 8
-#define SIGMA 2
+//#define SIGMA 2
 #define PRECISION 128
 
 
@@ -29,19 +32,22 @@ unsigned long long int col_sample_histogram[PRECISION][TAU*LIM+1];
 unsigned long int NO_SAMPLE;
 
 
-void create_binary(mpfr_t a, int prec,int row){
+int create_binary(mpfr_t a, int prec,int row){
 
+	int count = 0;
 	unsigned int i = 0;
 	mpfr_t v;
-	mpfr_init2(v, 128);
+	mpfr_init2(v, PRECISION);
 	mpfr_set(v,a,MPFR_RNDD);
 	int j = 0;//set j to trim some of the MSBs
 	for (i = 0; i < prec+j; i++){
 		mpfr_mul_ui(v,v,2,MPFR_RNDD);
 		if (mpfr_cmp_ui(v, 1) >= 0){
 			//printf("1");
-			if (i>=j)
+			if (i>=j) {
 				table[row][i-j] = 1;
+				++count;
+			}
 			mpfr_sub_ui(v,v,1,MPFR_RNDD);
 		}
 		else{
@@ -52,6 +58,7 @@ void create_binary(mpfr_t a, int prec,int row){
 	}
 	//printf("\n");
 	mpfr_clear(v);
+	return count;
 }
 
 
@@ -65,20 +72,82 @@ void to_binary(long int sample,int bit_num){
 
 }
 
+int get_total_num_sample(int OVERFLOW){
+	long int i, j, k,row;
+	//int OVERFLOW=2*28;
+	unsigned long int sample_counter=0;
+	unsigned int *d_arr;
+	int *valid_invalid;
+	d_arr= (unsigned int *)malloc(OVERFLOW*sizeof(unsigned int));
+	valid_invalid= (int *)malloc(OVERFLOW*sizeof(int));
+
+	for(j=0;j<OVERFLOW;j++)
+		d_arr[j]=0;
+
+	for(j=2;j<OVERFLOW;j++){//make all the entries invalid initially
+		valid_invalid[j]=-1;
+	}
+	valid_invalid[0]=1;//make the first two entries valid and appropriate bits
+	valid_invalid[1]=1;
+	d_arr[0]=0;d_arr[1]=1;
+
+	for(i=1;i<PRECISION;i++){//scan column by column
+		for(j=0;j<OVERFLOW;j++){
+
+			if(valid_invalid[j]==1){//found one valid entry append 0 and 1 then update d
+
+				d_arr[j]=d_arr[j]*2;//multiply by 2
+				//find another an empty space or invalid entry to append 1
+				for(k=0;k<OVERFLOW;k++){
+					if(valid_invalid[k]==-1){//found one
+						valid_invalid[k]=2; //make that valid newly created
+						d_arr[k]=d_arr[j]+1;//adjust d to reflect append 1
+						break;
+					}
+				}
+			}
+		}
+		for(j=0;j<OVERFLOW;j++){//adjust the valid_invalid array
+			if(valid_invalid[j]==2)
+				valid_invalid[j]=1;
+		}
+		for(j=0;j<OVERFLOW;j++){
+			if(valid_invalid[j]==1){
+				if(d_arr[j]>=size_ham[1][i]){ //like normal sampling
+					d_arr[j]=d_arr[j]-size_ham[1][i];
+				}
+				else{
+					for (row = size_ham[0][i]; row >= 0; row--){
+						d_arr[j] = d_arr[j] - table[row][i];
+						if (d_arr[j] == -1){
+							valid_invalid[j]=-1;
+							sample_counter++;
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+	free(d_arr);
+	free(valid_invalid);
+	return (int)(sample_counter + 1);
+}
+
 /*calculater the total samples, bits per sample and overflow beforehand*/
-void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
-	
+void run_sampling_d_lsb_sorted_espresso(int OVERFLOW, int bits_each_sample){// for sorted samples
+
 
 	long int i, j, k,l,m,limiter;
 	unsigned long int d;
-	
+
 	long int hit, col;
 	long int b, row, sample;
 	long int repeat = 1;
-	unsigned long int sample_counter=0;	
+	unsigned long int sample_counter=0;
 
-	int total_num_sample=1149; //sum of hamming weights of all columns
-	int bits_each_sample=5;
+	int total_num_sample=get_total_num_sample(OVERFLOW); //sum of hamming weights of all columns
+	fprintf(stderr, "total samples = %d\n", total_num_sample);
 
 	//-------------------------------
 	//int sample_bit[total_num_sample][bits_each_sample];//this will change 1st one number of samples second one number of bits of each sample
@@ -88,17 +157,17 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 	int *sorting_done;
 	for(i=0;i<total_num_sample;i++){
 		sample_bit[i]= (int *)malloc(bits_each_sample*sizeof(int));
-		sample_array[i]= (int *)malloc(PRECISION*sizeof(int));		
+		sample_array[i]= (int *)malloc(PRECISION*sizeof(int));
 	}
 	sorting_done= (int *)malloc(total_num_sample*sizeof(int));
-	//-------------------------------	
+	//-------------------------------
 
 	for(i=0;i<total_num_sample;i++)
 		sorting_done[i]=-1;
 
 	time_t t;
 	//int OVERFLOW=2*1176641;
-	int OVERFLOW=2*28;
+	//int OVERFLOW=2*28;
 
 
 	int temp[32];
@@ -119,10 +188,10 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 	//----------------
 
 	for(j=0;j<OVERFLOW;j++)
-		d_arr[j]=0;		
-		
+		d_arr[j]=0;
+
 	for(j=2;j<OVERFLOW;j++){//make all the entries invalid initially
-		valid_invalid[j]=-1;	
+		valid_invalid[j]=-1;
 	}
 	valid_invalid[0]=1;//make the first two entries valid and appropriate bits
 	valid_invalid[1]=1;
@@ -135,12 +204,12 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 	printf(".o %d\n",bits_each_sample);
 	printf(".ilb ");
 	for(i=PRECISION-1;i>=0;i--){
-		printf(" bit[%ld] ",i);	
+		printf(" bit[%ld] ",i);
 	}
 	printf("\n.ob ");
-	
+
 	for(i=bits_each_sample-1;i>=0;i--){
-		printf(" out_t[%ld] ",i);	
+		printf(" out_t[%ld] ",i);
 	}
 	printf("\n");
 //-----------------for espresso ends----------------
@@ -149,7 +218,7 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 		//printf("%d\n",i);
 		//find valid bits
 		for(j=0;j<OVERFLOW;j++){
-				
+
 			if(valid_invalid[j]==1){//found one valid entry append 0 and 1 then update d
 
 				arr[j][i]=0; //append 0
@@ -166,7 +235,7 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 						break;
 					}
 				}//end for
-			}//end if			
+			}//end if
 		}//end inner for
 		for(j=0;j<OVERFLOW;j++){//adjust the valid_invalid array
 			if(valid_invalid[j]==2)
@@ -177,7 +246,7 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 				printf(" d : %d\n",d_arr[j]);
 			}*/
 		}
-		
+
 		//logic to scan the columns for sample
 		for(j=0;j<OVERFLOW;j++){
 			if(valid_invalid[j]==1){
@@ -215,7 +284,7 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 							for(k=bits_each_sample-1;k>=0;k--){ //*****change for bit number change
 								//printf("%ld",(sample&(l<<k))>>k);
 								sample_bit[sample_counter][k]=(sample&(l<<k))>>k;
-							}							  
+							}
 							//-------------print the binary end------------------
 							//printf(" %lu\n",sample_counter);
 							sample_counter++;
@@ -225,10 +294,10 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 					}//end for
 				}//end else
 			}//end if
-			
+
 		}//end for
 
-	}//end outer for	
+	}//end outer for
 
 //----------------print and sort the samples------------------
 /*
@@ -241,7 +310,7 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 		}
 		printf("  ");
 		for(j=7-1;j>=0;j--)
-			printf("%d",sample_bit[k][j]);		
+			printf("%d",sample_bit[k][j]);
 		printf("\n");
 	}
 */
@@ -271,7 +340,7 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 						printf("\n");
 
 				}
-				
+
 			}//end if
 		}
 	}
@@ -282,14 +351,13 @@ void run_sampling_d_lsb_sorted_espresso(){// for sorted samples
 
 
 
-void create_table()
+int create_table(double sigma)
 {
+	int count = 0;
 	unsigned long int i,j;
 	int k;
 	mpfr_t s, t, u, e,pi,sigma_large,prob_sum;
 	int precision = 250;
-	
-	int sigma = 1*SIGMA;
 
 	mpfr_init2(s, precision);
 	mpfr_init2(t, precision);
@@ -302,12 +370,12 @@ void create_table()
 	mpfr_init2(prob_sum, precision);
 
 	mpfr_set_si(sigma_large,sigma,MPFR_RNDD); //set the large sigma
-	
+
 	mpfr_const_pi(pi, MPFR_RNDD);
 	mpfr_mul_ui(pi, pi,2,MPFR_RNDD);
 	mpfr_sqrt(pi, pi, MPFR_RNDD);
-	
-	mpfr_mul(pi,pi,sigma_large,MPFR_RNDD); //pi<- (sigma*sqrt(2*pi))	
+
+	mpfr_mul(pi,pi,sigma_large,MPFR_RNDD); //pi<- (sigma*sqrt(2*pi))
 	mpfr_set(s,sigma_large,MPFR_RNDD); //s<-sigma
 
 	mpfr_sqr(s,s,MPFR_RNDD);		//s<-sigma^2
@@ -326,21 +394,21 @@ void create_table()
 		if(i!=0){
 			mpfr_mul_ui(e, e, 2,MPFR_RNDD);
 		}
-		mpfr_add(prob_sum,prob_sum,e,MPFR_RNDD);//add the probabilities	
-		create_binary(e,128,i);
+		mpfr_add(prob_sum,prob_sum,e,MPFR_RNDD);//add the probabilities
+		count += create_binary(e,PRECISION,i);
 		//mpfr_printf(" i %d ||| %.150RNf \n",i,e);
 		//mpfr_printf(" %d Total probability sum ||| %.250RNf \n",i,prob_sum);
 	}
 
 		//mpfr_printf(" Total probability sum ||| %.250RNf \n",prob_sum);
 		//printf("precision of prob_sum %d\n",mpfr_get_prec(prob_sum));
-		
-	
+
+
 	for (j = 0; j < PRECISION; j++){
 		size_ham[0][j] = 0;
 		size_ham[1][j] = 0;
 	}
-	
+
 	for (i = 0; i<TAU*LIM+1 ; i++){
 		for (j = 0; j < PRECISION; j++){
 			if (table[i][j] == 1){
@@ -355,7 +423,7 @@ void create_table()
 
 	for (j = 0; j < PRECISION; j++){
 		printf("%d, ", size_ham[0][j]);
-	
+
 	}
 	printf("\n");
 	for (j = 0; j < PRECISION; j++){
@@ -363,21 +431,21 @@ void create_table()
 
 	}
 	printf("\n");
-	
-	
+
+
 	for (k = 0; k<=TAU*LIM; k++){
 		for (j = 0; j < PRECISION; j++){
 			printf("%d", table[k][j]);
 		}
 		printf("\n");
-	}	
+	}
 
-*/	
+*/
 
 	/*
 	for (j = 0; j < PRECISION; j++){
 		printf("size_ham[0][%ld]=%d; ", j, size_ham[0][j]);
-	
+
 	}
 	printf("\n");
 	for (j = 0; j < PRECISION; j++){
@@ -385,8 +453,8 @@ void create_table()
 
 	}
 	printf("\n");
-	
-	
+
+
 	for (k = 0; k<=TAU*LIM; k++){
 		for (j = 0; j < PRECISION; j++){
 			printf("ky_table[%d][%ld]=%d; ", k, j, table[k][j]);
@@ -403,31 +471,39 @@ void create_table()
 	mpfr_clear(sigma_large);
 	mpfr_clear(prob_sum);
 
-	return;
+	return count;
 }
 
-void main(){
+void main(int argc, char **argv){
 
 	unsigned long int i,j;
 	int k;
 	unsigned long long int ham_sum,size_sum;
 	int bit_num;
 	int overflow;
+	int table_ones;
+
+	double sigma;
+	int bits_each_sample;
+	sigma = atof(argv[1]);
+	bits_each_sample = atoi(argv[2]);
 
 	for(j=0;j<TAU*LIM+1;j++)
 		histogram[j]=0;
 	for(j=0;j<PRECISION;j++)
 		col_histogram[j]=0;
 
-	for(i=0;i<TAU*LIM+1;i++){	
+	for(i=0;i<TAU*LIM+1;i++){
 		for(j=0;j<PRECISION;j++)
 			col_sample_histogram[j][i]=0;
 		}
 
 
 	NO_SAMPLE=0;
-	create_table();
-	
+	table_ones = create_table(sigma);
+	overflow = 2 * table_ones;
+	fprintf(stderr, "table ones = %d\n", table_ones);
+
 	unsigned long long clock1, clock2;
 
 
@@ -447,18 +523,18 @@ void main(){
 	//run_sampling_d_lsb_truthtable();//for synopsys
 	//run_sampling_d_lsb_sorted();
 	//run_sampling_d_lsb_sorted_synopsys();//for synopsys sorted
-	run_sampling_d_lsb_sorted_espresso();//for espresso sorted
+	run_sampling_d_lsb_sorted_espresso(overflow, bits_each_sample);//for espresso sorted
 	//run_sampling_d_lsb_bysample();
 /*
-	for(i=0;i<82;i++){	
+	for(i=0;i<82;i++){
 		printf("lsb[%lu] = ",i);
-		run_sampling_d_lsb_bysample_truthtable(i);	
+		run_sampling_d_lsb_bysample_truthtable(i);
 		printf("\n");
 	}
 */
 	//run_sampling_8bit();
 	//run_sampling(); //run sampling with no limit on bits i.e until produces a sample
-	
+
 	//clock2 = cpucycles();
 	//printf("Time taken is : %lld\n", (clock2 - clock1)/10000);
 //------------------------------------------------------------driver for different sampling routines end--------------------------------------------
@@ -472,11 +548,11 @@ void main(){
 	size_sum=0;
 
 
-	
+
 	for(j=0;j<PRECISION;j++){
 		printf("j : %d :: %llu, ",j,size_ham[1][j]);
 	}
-	
+
 	printf("\n");
 
 	ham_sum=1;
@@ -484,34 +560,34 @@ void main(){
 		ham_sum=2*ham_sum-size_ham[1][j];
 		printf("j : %d :: %llu, ",j,ham_sum);
 	}
-	
+
 	printf("\n");
 	*/
 	/*
-	
+
 	for(j=0;j<TAU*LIM+1;j++)
 		printf("j : %d :: %llu\n",j,histogram[j]);
 	printf("------Column Histogram-----\n");
 	for(j=0;j<PRECISION;j++)
 		printf("j : %d :: %llu\n",j,col_histogram[j]);
 
-	for(i=0;i<PRECISION;i++){	
+	for(i=0;i<PRECISION;i++){
 		for(j=0;j<TAU*LIM+1;j++)
 			if(col_sample_histogram[i][j]!=0)
 				printf("Column : %d Sample : %d Number : %llu\n",i,j,col_sample_histogram[i][j]);
 		}
 
-		
+
 	*/
 
 //------------------------------------------------------------loops for different calculations end------------------------------------------------------
 
 //------------------------------------------------------------printing routines-------------------------------------------------------------------------
 
-	/*		
+	/*
 	for (j = 0; j < PRECISION; j++){
 		printf("%d  ",size_ham[0][j]);
-	
+
 	}
 	printf("\n");
 	for (j = 0; j < PRECISION; j++){
@@ -522,8 +598,8 @@ void main(){
 	*/
 	/*
 	printf("\n");
-	
-	
+
+
 	for (k = 0; k<=TAU*LIM; k++){
 		for (j = 0; j < PRECISION; j++){
 			printf("%d", table[k][j]);
@@ -531,9 +607,9 @@ void main(){
 		printf("\n");
 
 	}
-	
-	
-		
+
+
+
 	ham_sum=0;
 	for (j = 0; j < PRECISION; j++){
 
@@ -541,9 +617,9 @@ void main(){
 		size_sum=size_sum+size_ham[0][j];
 	}
 		printf("i:%d\tSum Hamming weight : %llu\tSum size value :%llu \n ",j,ham_sum,size_sum);
-	
+
 	*/
-	/*	
+	/*
 	ham_sum=0;
 	size_sum=0;
 	overflow=1;
@@ -555,9 +631,9 @@ void main(){
 		printf("i:%d\toverflow : %d\n ",j,overflow);
 
 	}
-	
+
 	*/
-	
+
 //------------------------------------------------------------printing routines end -------------------------------------------------------------------------
 
 }
