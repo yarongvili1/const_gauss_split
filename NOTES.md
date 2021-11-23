@@ -20,28 +20,28 @@ The enhancements target Linux at run-time and GCC at build-time.
 
 The [AES-CTR sampler code](Standalone sampler/bliss_6/aes_rnd.c) relies on
 compiler support for the `__int128` type to efficeintly provide a 128-bit cycle.
-Correct support yields an ADC assembly instruction in the `aes\_random\_bytes`
+Correct support yields an ADC assembly instruction in the `aes_random_bytes`
 function, as can be seen after running `make` in `Standalone sampler/bliss_6`:
 ```
-$ objdump --disassemble=aes\_random\_bytes sample\_optx.o | head -n 15
+$ objdump --disassemble=aes_random_bytes sample_optx.o | head -n 15
 
-sample\_optx.o:     file format elf64-x86-64
+sample_optx.o:     file format elf64-x86-64
 
 
 Disassembly of section .text:
 
-0000000000000390 <aes\_random\_bytes>:
+0000000000000390 <aes_random_bytes>:
  390:   f3 0f 1e fa             endbr64 
- 394:   48 8b 05 00 00 00 00    mov    0x0(%rip),%rax        # 39b <aes\_random\_bytes+0xb>
- 39b:   48 8b 15 00 00 00 00    mov    0x0(%rip),%rdx        # 3a2 <aes\_random\_bytes+0x12>
+ 394:   48 8b 05 00 00 00 00    mov    0x0(%rip),%rax        # 39b <aes_random_bytes+0xb>
+ 39b:   48 8b 15 00 00 00 00    mov    0x0(%rip),%rdx        # 3a2 <aes_random_bytes+0x12>
  3a2:   48 83 c0 01             add    $0x1,%rax
  3a6:   c4 e1 f9 6e c0          vmovq  %rax,%xmm0
  3ab:   48 83 d2 00             adc    $0x0,%rdx
  3af:   c4 e3 f9 22 c2 01       vpinsrq $0x1,%rdx,%xmm0,%xmm0
- 3b5:   c5 f8 29 05 00 00 00    vmovaps %xmm0,0x0(%rip)        # 3bd <aes\_random\_bytes+0x2d>
+ 3b5:   c5 f8 29 05 00 00 00    vmovaps %xmm0,0x0(%rip)        # 3bd <aes_random_bytes+0x2d>
 ```
 
-Further, the `aes\_random\_bytes` function uses the counter directly, without
+Further, the `aes_random_bytes` function uses the counter directly, without
 copying it. These enhancements resulted in improved AES-CTR sampler performance
 in the lab setting.
 
@@ -61,7 +61,7 @@ available.
 
 The automatic configuration is used to generate Boolean logic of a Half-Gaussian
 sampler parameterized by `sigma` and number of output bits. After running `make`
-at `Gaussian\_tool/Tool`, the automatic configuration can be invoked like so:
+at `Gaussian_tool/Tool`, the automatic configuration can be invoked like so:
 ```
 $ ./gen.sh combined.out 2 5
 ```
@@ -125,7 +125,7 @@ and 5 output bits. The above time measurements are in cycles.
 
 The high-performance bimodal-Gaussian sampler runs at a slightly lower rate:
 ```
-$ time ./sample\_optx 
+$ time ./sample_optx 
 Number of rejections: 38346419
 Time for all samples: 5523391027
 Number of samples: 25600000
